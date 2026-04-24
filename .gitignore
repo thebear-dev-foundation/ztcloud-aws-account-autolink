@@ -1,0 +1,26 @@
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+*.local.md
+*.local.yaml
+*.local.json
+**/credentials
+**/*.pem
+**/*.pfx
+
+# Terraform state + build artifacts
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.backup
+**/*.tfplan
+**/terraform.tfvars
+**/*.zip
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

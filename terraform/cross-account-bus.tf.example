@@ -1,0 +1,117 @@
+/*
+ * Cross-account EventBridge pattern — documentation only.
+ *
+ * For TSE-grade deployment, the Management account MUST NOT run the Lambda.
+ * Instead: Management forwards pipeline events to a custom EventBridge bus
+ * in the Audit/Security-Tooling account, where the Lambda actually runs.
+ *
+ * Rename to `cross-account-bus.tf` and split across providers to use.
+ */
+
+variable "audit_account_id" { type = string }
+
+# ========== In the Management account ==========
+provider "aws" { alias = "mgmt", region = var.region }
+
+resource "aws_cloudwatch_event_rule" "mgmt_pipeline" {
+  provider = aws.mgmt
+  name     = "ztw-lza-pipeline-forward"
+  event_pattern = jsonencode({
+    source        = ["aws.codepipeline"]
+    "detail-type" = ["CodePipeline Stage Execution State Change"]
+    detail = {
+      pipeline = [var.pipeline_name]
+      stage    = [var.stage_name]
+      state    = ["SUCCEEDED"]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "mgmt_to_audit" {
+  provider = aws.mgmt
+  rule     = aws_cloudwatch_event_rule.mgmt_pipeline.name
+  arn      = "arn:aws:events:${var.region}:${var.audit_account_id}:event-bus/ztw-ingress"
+  role_arn = aws_iam_role.mgmt_forwarder.arn
+}
+
+resource "aws_iam_role" "mgmt_forwarder" {
+  provider = aws.mgmt
+  name = "ztw-event-forwarder"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{ Effect = "Allow", Principal = { Service = "events.amazonaws.com" }, Action = "sts:AssumeRole" }]
+  })
+}
+
+resource "aws_iam_role_policy" "mgmt_forwarder" {
+  provider = aws.mgmt
+  role = aws_iam_role.mgmt_forwarder.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "events:PutEvents"
+      Resource = "arn:aws:events:${var.region}:${var.audit_account_id}:event-bus/ztw-ingress"
+    }]
+  })
+}
+
+# ========== In the Audit account ==========
+provider "aws" { alias = "audit", region = var.region }
+
+resource "aws_cloudwatch_event_bus" "audit_ingress" {
+  provider = aws.audit
+  name     = "ztw-ingress"
+}
+
+resource "aws_cloudwatch_event_bus_policy" "allow_mgmt" {
+  provider = aws.audit
+  event_bus_name = aws_cloudwatch_event_bus.audit_ingress.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid = "AllowMgmtAccountPut"
+      Effect = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.self.account_id}:root" }  # replace with mgmt acct in multi-acct TF
+      Action = "events:PutEvents"
+      Resource = aws_cloudwatch_event_bus.audit_ingress.arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_event_rule" "audit_to_lambda" {
+  provider       = aws.audit
+  name           = "ztw-ingress-to-reconciler"
+  event_bus_name = aws_cloudwatch_event_bus.audit_ingress.name
+  event_pattern  = jsonencode({
+    source        = ["aws.codepipeline"]
+    "detail-type" = ["CodePipeline Stage Execution State Change"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "audit_to_lambda" {
+  provider       = aws.audit
+  rule           = aws_cloudwatch_event_rule.audit_to_lambda.name
+  event_bus_name = aws_cloudwatch_event_bus.audit_ingress.name
+  arn            = aws_lambda_function.reconciler.arn  # reconciler lives in audit
+}
+
+# Cross-account ListAccounts — reconciler in Audit must assume a role in Management
+# to list Org accounts. Add this role in Management:
+#
+#   resource "aws_iam_role" "ztw_org_reader" {
+#     provider = aws.mgmt
+#     name     = "ztw-org-reader"
+#     assume_role_policy = jsonencode({
+#       Version = "2012-10-17"
+#       Statement = [{
+#         Effect    = "Allow"
+#         Principal = { AWS = "arn:aws:iam::${var.audit_account_id}:role/ztw-reconciler-role" }
+#         Action    = "sts:AssumeRole"
+#       }]
+#     })
+#     inline_policy { ... organizations:ListAccounts, ListTagsForResource ... }
+#   }
+#
+# Reconciler code change: replace `boto3.client("organizations")` with an STS-assumed session
+# into arn:aws:iam::<MGMT_ACCT>:role/ztw-org-reader.

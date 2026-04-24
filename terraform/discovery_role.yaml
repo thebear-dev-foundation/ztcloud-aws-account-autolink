@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Zscaler Tag Discovery Role for Connector Portal onboarding
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: Zscaler per-account external id (UUID)
+    MinLength: 16
+
+  ZscalerTrustedAccountId:
+    Type: String
+    Default: "175726779870"
+    Description: Zscaler AWS account that assumes this role
+
+  ZscalerTrustedRoleName:
+    Type: String
+    Default: ZscalerTagDiscoveryRole
+
+Resources:
+  ZscalerTagDiscoveryRoleBasic:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ZscalerTagDiscoveryRoleBasic
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${ZscalerTrustedAccountId}:role/${ZscalerTrustedRoleName}"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      Policies:
+        - PolicyName: ZscalerReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVpcEndpoints
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeTags
+                  - iam:GetInstanceProfile
+                  - iam:ListAttachedRolePolicies
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt ZscalerTagDiscoveryRoleBasic.Arn

@@ -9,12 +9,18 @@ Parameters:
 
   ZscalerTrustedAccountId:
     Type: String
-    Default: "175726779870"
-    Description: Zscaler AWS account that assumes this role
+    AllowedPattern: "^[0-9]{12}$"
+    Description: >
+      Zscaler AWS account ID that assumes this role. Source from your Zscaler
+      Connector Portal at AWS account onboarding time — the portal displays the
+      trusted account ID, expected role name, and your tenant-specific
+      external-id together. Do NOT bake a value into source code.
 
   ZscalerTrustedRoleName:
     Type: String
-    Default: ZscalerTagDiscoveryRole
+    Description: >
+      Zscaler-side role name (the role in the Zscaler account that assumes this
+      role). Source from the Connector Portal alongside the account ID.
 
 Resources:
   ZscalerTagDiscoveryRoleBasic:

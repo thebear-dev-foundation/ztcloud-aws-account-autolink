@@ -126,7 +126,7 @@ The design must therefore:
 | 6 | **EventBridge rule: daily safety net** (`ztw-reconcile-daily`) | Audit | Secondary trigger — catches drift |
 | 7 | **Dead-letter SQS queue** | Audit | Failed invocations for post-incident review (not yet wired in sandbox) |
 | 8 | **CloudWatch alarm** (`ztw-reconciler-errors`) | Audit | Alerts on any Lambda error |
-| 9 | **ZscalerTagDiscoveryRoleBasic IAM role** (deployed by #4) | Each opted-in workload account | Read-only discovery role Zscaler assumes from `175726779870` |
+| 9 | **ZscalerTagDiscoveryRoleBasic IAM role** (deployed by #4) | Each opted-in workload account | Read-only discovery role Zscaler assumes from the Zscaler-published trust account (sourced from the Connector Portal at onboarding) |
 | 10 | **Cross-account event bus** (`ztw-ingress`, optional) | Audit | Receives forwarded events from Management account (TSE pattern) |
 | 11 | **Cross-account event forwarder rule + IAM role** | Management account | Forwards pipeline events to Audit bus |
 
@@ -188,8 +188,8 @@ The design must therefore:
   │         │                          │                                │
   │         │ (service-managed         │ (read-only                     │
   │         │  StackSet targeting      │  discovery role                │
-  │         │  Workloads OU only)      │  assume, via                   │
-  │         ▼                          │  175726779870)                 │
+  │         │  Workloads OU only)      │  assume, via Zscaler           │
+  │         ▼                          │  trust account ID)             │
   │                                    ▼                                │
   │   Workload-A  Workload-B  Workload-N                                │
   │   (tag: zscaler-managed=true)                                       │
@@ -199,7 +199,8 @@ The design must therefore:
                                            │  trust boundary)
                                            ▼
                                     Zscaler AWS account
-                                    175726779870
+                                    (ID sourced from
+                                     Connector Portal)
                                     (assumes discovery role
                                      via external-id condition)
 ```
@@ -208,7 +209,7 @@ The design must therefore:
 - Management account has *zero* code execution for this workflow. Only EventBridge routing.
 - Audit account is the *single* source of execution; contains the OneAPI secret, the reconciler logic, the StackSet admin role.
 - Workload accounts receive *only* the discovery role (read-only, external-id-conditioned, no write anywhere).
-- Zscaler's account (`175726779870`) can assume the discovery role *only* with the correct per-account external-id.
+- Zscaler's trust account (sourced from the Connector Portal at onboarding) can assume the discovery role *only* with the correct per-account external-id.
 
 ---
 
@@ -276,7 +277,7 @@ Plus AWS-managed `AWSLambdaBasicExecutionRole` for logs.
 
 ```yaml
 Trust:
-  Principal: arn:aws:iam::175726779870:role/ZscalerTagDiscoveryRole
+  Principal: arn:aws:iam::<ZSCALER_AWS_ACCOUNT_ID>:role/<ZSCALER_TRUST_ROLE>   # both sourced from the Connector Portal
   Action: sts:AssumeRole
   Condition: StringEquals { sts:ExternalId: <per-account-UUID> }
 Policy:
@@ -662,7 +663,7 @@ Live test carried out in a sandbox AWS Organization (7 member accounts: LogArchi
 | R6 | CloudTrail → EventBridge (Phase-1) lag causes missed onboarding | High | Low | Medium | Explicitly not the primary trigger in this design. Pipeline hook is primary. | Very Low |
 | R7 | Lambda runs amok due to code bug | Low | Medium | Medium | DRY_RUN default on config changes; Error alarm; break-glass documented | Low |
 | R8 | External-id collision across customers | Astronomically low (UUIDv4) | Low | Low | UUID4 entropy (2^122 unique values) | Negligible |
-| R9 | Zscaler account (`175726779870`) compromised | Out of customer control | High | Medium | Zscaler's own operational controls; trust the external-id condition to scope blast radius to one customer at a time | External dependency |
+| R9 | Zscaler trust account (sourced from Connector Portal) compromised | Out of customer control | High | Medium | Zscaler's own operational controls; trust the external-id condition to scope blast radius to one customer at a time | External dependency |
 | R10 | Operator deletes the Lambda manually | Low | Low (fail-open; no new events processed) | Low | Terraform drift detection; daily schedule still runs if only the rule is intact | Low |
 | R11 | Tag key change not propagated | Low | Medium (silent ignore) | Medium | Config is single source; change via terraform apply propagates to Lambda env | Low |
 | R12 | Regulator discovers OneAPI calls not logged | Low | High (audit finding) | High | CloudWatch Logs → LogArchive with Object Lock; ZTW API CloudTrail (tenant-side, via Zscaler admin audit log) | Low |

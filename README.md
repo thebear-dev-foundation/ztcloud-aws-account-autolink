@@ -66,7 +66,8 @@ ztcloud-aws-account-autolink/
 1. **AWS Organization** with all-features enabled.
 2. **AWS CLI + Terraform 1.5+**, authenticated as admin in the account where the Lambda will live (Audit account in TSE deployments; Management works for single-account sandboxes).
 3. **Zscaler tenant with OneAPI client** — create an OAuth2 client in ZIdentity scoped minimally to `/ztw/api/v1/publicCloudInfo` (GET, POST, DELETE). Capture `client_id`, `client_secret`, and the vanity domain (format `z-<orgid>.zslogin.net`).
-4. **Trusted access for CloudFormation service-managed StackSets** — enabled by the deploy script, or run manually:
+4. **Zscaler trust account ID + role name** — sourced from your Zscaler Connector Portal during AWS account onboarding. The portal displays the Zscaler-side trusted account ID, the expected role name, and your tenant-specific external-id together. Pass these as Terraform variables (or as CloudFormation parameters when deploying `discovery_role.yaml` standalone) — they are NOT baked into this repo. Do not hardcode an account ID into source — always source from the portal at provisioning time so you pick up any future rotation.
+5. **Trusted access for CloudFormation service-managed StackSets** — enabled by the deploy script, or run manually:
    ```bash
    aws organizations enable-aws-service-access \
      --service-principal member.org.stacksets.cloudformation.amazonaws.com
